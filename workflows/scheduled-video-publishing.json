@@ -1,0 +1,605 @@
+{
+  "name": "Scheduled publishing from spreadsheet queue",
+  "nodes": [
+    {
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -640,
+        100
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -460,
+        100
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.QUEUE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Split Out",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -280,
+        100
+      ],
+      "parameters": {
+        "fieldToSplitOut": "Link",
+        "include": "allOtherFields",
+        "options": {}
+      }
+    },
+    {
+      "name": "Filter",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        -80,
+        100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fc0a0c84-caa6-49c6-884d-55d197ec45eb",
+              "leftValue": "={{ DateTime.fromFormat($json.Fecha, 'yyyy-MM-dd HH:mm:ss',{ zone: 'Europe/Madrid' }).toISO() }}",
+              "rightValue": "={{ DateTime.fromISO($now).setZone('Europe/Madrid').toISO() }}",
+              "operator": {
+                "type": "dateTime",
+                "operation": "beforeOrEquals"
+              }
+            },
+            {
+              "id": "eb37b973-f095-4a7e-909e-8b51e534a975",
+              "leftValue": "={{ $json.Estado }}",
+              "rightValue": "PROGRAMADO",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      }
+    },
+    {
+      "name": "Tweet Request2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        120,
+        100
+      ],
+      "parameters": {
+        "url": "https://cdn.syndication.twimg.com/tweet-result",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "={{ $('Split Out').item.json.Link }}"
+            },
+            {
+              "name": "token",
+              "value": "REPLACE_WITH_SYNDICATION_TOKEN"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "X",
+      "type": "n8n-nodes-base.twitter",
+      "typeVersion": 2,
+      "position": [
+        380,
+        -40
+      ],
+      "parameters": {
+        "text": "={{ $('Get Rows').item.json.Tweet }}\n\n{{ $json.entities.media[0].expanded_url }}\n",
+        "additionalFields": {}
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "name": "Long Live Token",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        380,
+        180
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "725147e1-ef6a-4576-a67a-9bb62051ec91",
+              "name": "token",
+              "value": "={{ $env.THREADS_ACCESS_TOKEN }}",
+              "type": "string"
+            },
+            {
+              "id": "0df04c60-fa7d-450d-88ef-37f5fd079c4a",
+              "name": "threads_id",
+              "value": "={{ $env.THREADS_USER_ID }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Create Threads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1180,
+        180
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://example.invalid/v1.0/{{ $('Long Live Token').item.json.threads_id }}/threads",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "media_type",
+              "value": "VIDEO"
+            },
+            {
+              "name": "video_url",
+              "value": "={{ $('Upload Video').item.json.webContentLink }}"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $('Long Live Token').item.json.token }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $('Get Rows').item.json.Tweet }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "disabled": true
+    },
+    {
+      "name": "Post Threads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1740,
+        140
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://example.invalid/v1.0/{{ $('Long Live Token').item.json.threads_id }}/threads_publish",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "creation_id",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $('Long Live Token').item.json.token }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "disabled": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        140
+      ],
+      "parameters": {
+        "amount": 25
+      },
+      "disabled": true
+    },
+    {
+      "name": "Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        660,
+        -60
+      ],
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.QUEUE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Link": "={{ $('Get Rows').item.json.Link }}",
+            "Estado": "ENVIADO"
+          },
+          "matchingColumns": [
+            "Link"
+          ],
+          "schema": [
+            {
+              "id": "Link",
+              "displayName": "Link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Tweet",
+              "displayName": "Tweet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Fecha",
+              "displayName": "Fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Estado",
+              "displayName": "Estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Confirmación",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        900,
+        -60
+      ],
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "=🎌 Enviado: {{ $('Get Rows').item.json.Tweet }} planificado para 📆 **{{ $('Get Rows').item.json.Fecha }}**",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "name": "Get Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        180
+      ],
+      "parameters": {
+        "url": "={{ $('Tweet Request2').item.json.mediaDetails[0].video_info.variants[3].url }}",
+        "options": {}
+      }
+    },
+    {
+      "name": "Upload Video",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        740,
+        180
+      ],
+      "parameters": {
+        "name": "={{ $json.threads_id }}.mp4",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "root",
+          "mode": "list"
+        },
+        "options": {}
+      },
+      "disabled": true
+    },
+    {
+      "name": "Share video",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        960,
+        180
+      ],
+      "parameters": {
+        "operation": "share",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        },
+        "permissionsUi": {
+          "permissionsValues": {
+            "role": "reader",
+            "type": "anyone"
+          }
+        },
+        "options": {}
+      },
+      "disabled": true
+    },
+    {
+      "name": "Create Threads1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1360,
+        40
+      ],
+      "parameters": {
+        "url": "=GET https://example.invalid/v1.0/{{ $('Long Live Token').item.json.threads_id }}?fields=status,error_message&access_token={{ $('Long Live Token').item.json.token }}\n\n",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "options": {}
+      },
+      "disabled": true
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Rows": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Tweet Request2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Long Live Token": {
+      "main": [
+        [
+          {
+            "node": "Get Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Threads": {
+      "main": [
+        [
+          {
+            "node": "Create Threads1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Post Threads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tweet Request2": {
+      "main": [
+        [
+          {
+            "node": "X",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Long Live Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Threads": {
+      "main": [
+        []
+      ]
+    },
+    "Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Confirmación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Video": {
+      "main": [
+        [
+          {
+            "node": "Upload Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Video": {
+      "main": [
+        [
+          {
+            "node": "Share video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Share video": {
+      "main": [
+        [
+          {
+            "node": "Create Threads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Threads1": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "X": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "demo0a6061e5"
+}

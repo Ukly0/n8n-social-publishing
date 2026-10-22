@@ -1,0 +1,327 @@
+{
+  "name": "Change watcher - page diff to Telegram",
+  "nodes": [
+    {
+      "name": "Edit Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -20,
+        -100
+      ],
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"paginas\": [\n\"https://example.invalid/page-1\",\n\"https://example.invalid/page-2\",\n\"https://example.invalid/page-3\",\n\"https://example.invalid/page-4\",\n\"https://example.invalid/page-5\",\n\"https://example.invalid/page-6\",\n\"https://example.invalid/page-7\"\n  ]\n}\n",
+        "includeOtherFields": true,
+        "include": "selected",
+        "options": {}
+      }
+    },
+    {
+      "name": "Split Out",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        160,
+        -100
+      ],
+      "parameters": {
+        "fieldToSplitOut": "paginas",
+        "include": "allOtherFields",
+        "options": {}
+      }
+    },
+    {
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -200,
+        -100
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 20
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Execute Command",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        340,
+        -100
+      ],
+      "parameters": {
+        "executeOnce": false,
+        "command": "=python3 {{ $env.SCRIPTS_DIR }}/render_page.py  {{ $json.paginas }}"
+      }
+    },
+    {
+      "name": "Edit Fields1",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        520,
+        -100
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "45ea4ae8-be03-485b-95eb-539c041b211a",
+              "name": "html",
+              "value": "={{ $json.stdout.parseJson().stable }}",
+              "type": "string"
+            },
+            {
+              "id": "cac86666-582a-48e0-bc67-27665360b94f",
+              "name": "url",
+              "value": "={{ $json.stdout.parseJson().url }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Code",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        -100
+      ],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// 1) Carga el store estático (por nodo)\nconst staticStore = await $getWorkflowStaticData('node');\nstaticStore.pages = staticStore.pages || {};\n\n// 2) Extrae URL y HTML del item actual\nconst url  = $json.url;\nconst html = $json.html;\n\n// 3) Obtén el HTML anterior (o cadena vacía si no hay)\nconst lastHtml = staticStore.pages[url] || '';\n\n// 4) Normaliza y parte en líneas\nconst normalize = (s) =>\n  s\n    .split(/\\r?\\n/)       // por saltos de línea\n    .map((l) => l.trim()) // quita espacios a los lados\n    .filter((l) => l);    // elimina líneas vacías\n\nconst oldLines = normalize(lastHtml);\nconst newLines = normalize(html);\n\n// 5) Calcula añadidos y eliminados\nconst added   = newLines.filter((l) => !oldLines.includes(l));\nconst removed = oldLines.filter((l) => !newLines.includes(l));\n\n// 6) Marca cambio (solo si no es la primera pasada)\nconst changed = lastHtml !== '' && (added.length > 0 || removed.length > 0);\n\n// 7) Guarda para la próxima ejecución\nstaticStore.pages[url] = html;\n\n// 8) Devuelve un objeto (modo Run for Each Item)\nreturn {\n  json: {\n    url,\n    changed,\n    added,    // líneas nuevas\n    removed, \n    html,\n    lastHtml// líneas que ya no aparecen\n  }\n};\n"
+      }
+    },
+    {
+      "name": "If",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -180,
+        140
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "31845ae1-df64-4c00-b24b-18fb3ea1bfd8",
+              "leftValue": "={{ $json.changed }}",
+              "rightValue": "null",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        660,
+        120
+      ],
+      "parameters": {
+        "chatId": "={{ $env.TELEGRAM_CHAT_ID }}",
+        "text": "={{ $json.output }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "name": "No Operation, do nothing",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -180,
+        360
+      ],
+      "parameters": {}
+    },
+    {
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [
+        200,
+        120
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "=Eres un experto en notificar cambios en páginas para que los usuarios esten atentos, eres esencial para conocer cambios que afectan a la vida de personas. Tu trabajo consiste en crear un mensaje para telegram, para ello seguiremos los siguientes pasos:\n\n1. Conocer el contexto de la página, para eso leeras la siguiente información: {{ $('Edit Fields1').item.json.html }}\n\n2. Comprobariamos la version anterior que seria esta: {{ $('Code').item.json.lastHtml }}\n\n3. Redactar un mensaje con emojis llamativos y descriptivos en cada caso, anunciando de manera clara que es lo que ha cambiado, que sea corto y llamativo.\n\n4. Agregar el enlace al mensaje: Enlace: {{ $('Edit Fields1').item.json.url }}\n\nEs super importante que me devuelvas en mensaje y solo el mensaje para directamente enviarlo a telegram, no quiero ninguna explicación extra",
+        "options": {}
+      }
+    },
+    {
+      "name": "DeepSeek Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatDeepSeek",
+      "typeVersion": 1,
+      "position": [
+        100,
+        300
+      ],
+      "parameters": {
+        "options": {}
+      }
+    },
+    {
+      "name": "No Operation, do nothing1",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        900,
+        120
+      ],
+      "parameters": {}
+    }
+  ],
+  "connections": {
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Execute Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Command": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DeepSeek Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram": {
+      "main": [
+        [
+          {
+            "node": "No Operation, do nothing1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "demo5e9e47fb"
+}

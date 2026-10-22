@@ -1,0 +1,1720 @@
+{
+  "name": "Social publishing - Telegram intake to X and Threads",
+  "nodes": [
+    {
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -800,
+        -180
+      ],
+      "parameters": {
+        "updates": [
+          "*"
+        ],
+        "additionalFields": {}
+      }
+    },
+    {
+      "name": "Tweet Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        100
+      ],
+      "parameters": {
+        "url": "https://cdn.syndication.twimg.com/tweet-result",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "={{ $json.tweetId }}"
+            },
+            {
+              "name": "token",
+              "value": "REPLACE_WITH_SYNDICATION_TOKEN"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Get ID & Tweet",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        360,
+        100
+      ],
+      "parameters": {
+        "jsCode": "// 1. Coge el texto del mensaje\nconst text = $('Telegram Trigger').first().json[\"message\"][\"text\"] || '';\n\n// 2. Busca el enlace a X/Twitter y captura el ID\n//    Ajusta el regex si quieres soportar también mobile.twitter.com u otros subdominios\nconst regex = /https?:\\/\\/(?:www\\.)?x\\.com\\/[^\\/]+\\/status\\/(\\d+)/i;\nconst match = text.match(regex);\n\nif (!match) {\n  throw new Error('No se encontró un enlace de tweet válido en el mensaje');\n}\n\n// 3. match[0] es la URL entera, match[1] es el ID\nconst tweetUrl = match[0];\nconst tweetId  = match[1];\n\nreturn [{\n  json: {\n    tweetUrl,\n    tweetId\n  }\n}];\n"
+      }
+    },
+    {
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [
+        1380,
+        100
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "=Eres un asistente experto en redactar tweets en español sobre Cultura Japonesa. Tienes este **tweet de referencia** (TEXT_REF), acompañado de un vídeo al que no tienes acceso, así que sólo dispones de su texto. Tu misión es **mejorar** ese tweet haciendo uno nuevo que sea diferente tomando de referencia lo siguiente:\n\n1. Primera regla, IMPORTANTE QUE NO SUPERE **210 caracteres**.  \n2. Sigan la estructura de los tweet de ejemplo.  \n3. Contraste claramente con el tweet de referencia: identifica su punto débil o poco claro y supera esa limitación dando datos que aporten o curiosos siempre verificando que sean ciertos.  \n4. Mantenga **tono informativo y divulgativo** y usa solo UN hashtag relevante (#Japón, #Osaka, etc.) a poder ser integrado dentro del tweet (que no este al final del tweet).  \n5. Aunque los ejemplos estén en otros idiomas, **el tweet nuevo debe ir en castellano**.\n6. Añade los nombres más importantes en japones entre () para que la gente pueda ver cual es el termino en japones.\n7.No pongas coletillas al tweet (llamadas a la acción, !, ?)\n8. NO AGREGUES NINGÚN **ENLACE** AL MENSAJE, NI PONGAS ENTRE CORCHETES O <<>> EL MENSAJE\n\nTEN SIEMPRE ESTAS 8 REGLAS EN CONSIDERACIÓN YA QUE SON FUNDAMENTALES.\n\nIMPORTANTE QUE NO SUPERE **210 caracteres**\n\n**Tweets de ejemplo que funcionan muy bien** como guía:\n\n**Synthetic examples (structure only, invented)**:\n\n1.\n«A short factual note about a seasonal event, written in one sentence, with one hashtag inside the text. #Example»\n\n2.\n«A second synthetic note with a different sentence rhythm and a single relevant hashtag. #Example»\n\n---\nTweet de referencia: {{ $('Tweet Request').item.json.text }}\n\nSolo contesta con el tweet de salida, entrega nada más que solo el tweet, en ningún caso añadas anotaciones y comillas al texto/tweet\n",
+        "options": {}
+      }
+    },
+    {
+      "name": "DeepSeek Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatDeepSeek",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        260
+      ],
+      "parameters": {
+        "model": "deepseek-reasoner",
+        "options": {}
+      }
+    },
+    {
+      "name": "Telegram2",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1740,
+        100
+      ],
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.from.id }}",
+        "text": "=message: {{ $json.output }}(©️{{ $('Tweet Request').item.json.mediaDetails[0].expanded_url.split('/')[3] }})\n\nid: {{ $('Get ID & Tweet').item.json.tweetId }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "🤖",
+                    "additionalFields": {
+                      "callback_data": "again"
+                    }
+                  },
+                  {
+                    "text": "🎴",
+                    "additionalFields": {
+                      "callback_data": "send"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "📆",
+                    "additionalFields": {
+                      "callback_data": "schedule"
+                    }
+                  },
+                  {
+                    "text": "❌",
+                    "additionalFields": {
+                      "callback_data": "cancel"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      }
+    },
+    {
+      "name": "Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -380,
+        -180
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "9cdeb86b-d674-481b-ae91-24fed57ccd2b",
+                    "leftValue": "={{ Object.keys($('Telegram Trigger').item.json) }}",
+                    "rightValue": "callback_query",
+                    "operator": {
+                      "type": "array",
+                      "operation": "contains",
+                      "rightType": "any"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "callback"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "9e4a9d3f-750a-45ec-a20f-675c180ed719",
+                    "leftValue": "={{ Object.keys($('Telegram Trigger').item.json) }}",
+                    "rightValue": "message",
+                    "operator": {
+                      "type": "array",
+                      "operation": "contains",
+                      "rightType": "any"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "message"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Switch1",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        180,
+        -480
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('Telegram Trigger').item.json.callback_query.data }}",
+                    "rightValue": "send",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "52e6a909-b8df-4212-a7b0-3bbf6e709d0a"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "send"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "0130b309-debf-48af-a49b-888502e60f36",
+                    "leftValue": "={{ $('Telegram Trigger').item.json.callback_query.data }}",
+                    "rightValue": "cancel",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cancel"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "5ab98dd7-11b3-4513-8a94-81542e7c1cb1",
+                    "leftValue": "={{ $('Telegram Trigger').item.json.callback_query.data }}",
+                    "rightValue": "again",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "again"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "e661426d-f7cf-470f-bdb3-84e1d0ca91b6",
+                    "leftValue": "={{ $('Telegram Trigger').item.json.callback_query.data }}",
+                    "rightValue": "schedule",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "schedule"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Message Text",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1180,
+        100
+      ],
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.from.id }}",
+        "text": "=El tweet original es: {{ $('Tweet Request').item.json.text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      }
+    },
+    {
+      "name": "Message Video",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        980,
+        100
+      ],
+      "parameters": {
+        "operation": "sendVideo",
+        "chatId": "={{ $('Telegram Trigger').item.json.message.from.id }}",
+        "binaryData": true,
+        "additionalFields": {
+          "height": "={{ $('Tweet Request').item.json.mediaDetails[0].original_info.height }}",
+          "width": "={{ $('Tweet Request').item.json.mediaDetails[0].original_info.width }}"
+        }
+      }
+    },
+    {
+      "name": "Edit Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -180,
+        -320
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "de1039cf-d0ca-4332-b9e3-4c12cccf436a",
+              "name": "id",
+              "value": "={{ $('Telegram Trigger').item.json.callback_query.message.text.split('id: ')[1]}}",
+              "type": "string"
+            },
+            {
+              "id": "e48c91af-84b4-4f2d-bc97-770a5cee9897",
+              "name": "message",
+              "value": "={{ $('Telegram Trigger').item.json.callback_query.message.text.split('message: ')[1].split('\\n')[0] }}",
+              "type": "string"
+            },
+            {
+              "id": "5264fcdf-d1ab-4edb-8e75-efba37699b95",
+              "name": "",
+              "value": "",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "HTTP Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1460,
+        -580
+      ],
+      "parameters": {
+        "method": "POST",
+        "options": {}
+      },
+      "disabled": true
+    },
+    {
+      "name": "Threads Variable",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1620,
+        -580
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1df7158b-4a20-4666-a90f-875d7f4e8889",
+              "name": "access_token",
+              "value": "={{ $env.THREADS_ACCESS_TOKEN }}",
+              "type": "string"
+            },
+            {
+              "id": "41c8a515-0101-4aca-9a4a-a7fe72adce58",
+              "name": "client_secret",
+              "value": "={{ $env.THREADS_CLIENT_SECRET }}",
+              "type": "string"
+            },
+            {
+              "id": "2fb0a6be-51fa-4d00-b1a4-982205cfa958",
+              "name": "account_id",
+              "value": "={{ $env.SOCIAL_ACCOUNT_ID }}",
+              "type": "string"
+            },
+            {
+              "id": "a861f296-f24d-4601-9100-a17b59365543",
+              "name": "language",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "4e9b6805-b6c6-4123-911b-8413082eef12",
+              "name": "threads_id",
+              "value": "={{ $env.THREADS_USER_ID }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Tweet Request2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        -400
+      ],
+      "parameters": {
+        "url": "https://cdn.syndication.twimg.com/tweet-result",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "id",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "name": "token",
+              "value": "REPLACE_WITH_SYNDICATION_TOKEN"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "AI Agent1",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.9,
+      "position": [
+        760,
+        -520
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "=Eres un asistente experto en redactar tweets en español sobre Cultura Japonesa. Tienes este **tweet de referencia** (TEXT_REF), acompañado de un vídeo al que no tienes acceso, así que sólo dispones de su texto. Tu misión es **modificar** ese tweet haciendo uno nuevo que:\n\n**LO MÁS IMPORTANTE ES** modifica el tweet generado según las siguientes instrucciones:{{ $json.data.prompt }}\n\nQue se asemeje más a los tweet de ejemplo.\n\n**Tweets de ejemplo que funcionan muy bien** como guía:\n\n**Synthetic examples (structure only, invented)**:\n\n1.\n«A short factual note about a seasonal event, written in one sentence, with one hashtag inside the text. #Example»\n\n2.\n«A second synthetic note with a different sentence rhythm and a single relevant hashtag. #Example»\n\n---\nTweet de referencia: {{ $('Tweet Request2').item.json.text }}\n\nTweet generado: {{ $('Edit Fields').item.json.message }}\n\n\nSolo contesta con el tweet de salida,omite el id, entrega nada más que solo el tweet, en ningún caso añadas anotaciones y comillas al texto/tweet.\n",
+        "options": {}
+      }
+    },
+    {
+      "name": "Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        560,
+        -520
+      ],
+      "parameters": {
+        "operation": "sendAndWait",
+        "chatId": "={{ $('Telegram Trigger').item.json.callback_query.message.chat.id }}",
+        "message": "Que quieres modificar 📝:",
+        "responseType": "customForm",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "tweet generado",
+              "fieldType": "textarea",
+              "placeholder": "={{ $('Edit Fields').item.json.message }}"
+            },
+            {
+              "fieldLabel": "prompt"
+            }
+          ]
+        },
+        "options": {
+          "responseFormButtonLabel": "Submit",
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "name": "Telegram3",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        -520
+      ],
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.callback_query.from.id }}",
+        "text": "=message: {{ $json.output }}\n\nid: {{ $('Edit Fields').item.json.id }}\n",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "⚡️",
+                    "additionalFields": {
+                      "callback_data": "again"
+                    }
+                  },
+                  {
+                    "text": "✅",
+                    "additionalFields": {
+                      "callback_data": "send"
+                    }
+                  },
+                  {
+                    "text": "❌",
+                    "additionalFields": {
+                      "callback_data": "cancel"
+                    }
+                  },
+                  {
+                    "text": "📅",
+                    "additionalFields": {
+                      "callback_data": "schedule"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      }
+    },
+    {
+      "name": "Upload Twitter Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2100,
+        -1480
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://upload.twitter.com/1.1/media/upload.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "twitterOAuth1Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "command",
+              "value": "INIT"
+            },
+            {
+              "name": "media_type",
+              "value": "video/mp4"
+            },
+            {
+              "name": "total_bytes",
+              "value": "={{ Math.round($json.fileSize.replaceAll(' MB','').toNumber() * (1024 * 1024)) }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Read/Write Files from Disk1",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        -2300,
+        -1480
+      ],
+      "parameters": {
+        "fileSelector": "={{ $env.WORK_DIR }}/{{$('Edit Fields').item.json.id}}.mp4",
+        "options": {}
+      }
+    },
+    {
+      "name": "X",
+      "type": "n8n-nodes-base.twitter",
+      "typeVersion": 2,
+      "position": [
+        560,
+        -1160
+      ],
+      "parameters": {
+        "text": "={{ $('Edit Fields').item.json.message.split('\\n')[0] }}\n{{ $('Tweet Request2').item.json.entities.media[0].expanded_url }}",
+        "additionalFields": {}
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "name": "Upload Twitter Video APPEND",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1720,
+        -1480
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://upload.twitter.com/1.1/media/upload.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "twitterOAuth1Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "command",
+              "value": "APPEND"
+            },
+            {
+              "name": "media_id",
+              "value": "={{ $('Upload Twitter Video').item.json.body.media_id_string }}"
+            },
+            {
+              "name": "segment_index",
+              "value": "=0"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "media",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Read/Write Files from Disk2",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        -1900,
+        -1480
+      ],
+      "parameters": {
+        "fileSelector": "={{ $env.WORK_DIR }}/{{$('Edit Fields').item.json.id}}.mp4",
+        "options": {}
+      }
+    },
+    {
+      "name": "Upload Twitter Video FINALIZE",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1520,
+        -1480
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://upload.twitter.com/1.1/media/upload.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "twitterOAuth1Api",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "command",
+              "value": "FINALIZE"
+            },
+            {
+              "name": "media_id",
+              "value": "={{ $('Upload Twitter Video').item.json.body.media_id_string }}"
+            },
+            {
+              "name": "segment_index",
+              "value": "=0"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "When clicking ‘Test workflow’",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -880,
+        660
+      ],
+      "parameters": {}
+    },
+    {
+      "name": "Edit Fields1",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -660,
+        660
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "58644e9b-5999-4e26-aeff-896fc25d4879",
+              "name": "access_token",
+              "value": "={{ $env.THREADS_ACCESS_TOKEN }}",
+              "type": "string"
+            },
+            {
+              "id": "e4d1d680-bd18-476c-8b3c-5578ef63b560",
+              "name": "client_secret",
+              "value": "={{ $env.THREADS_CLIENT_SECRET }}",
+              "type": "string"
+            },
+            {
+              "id": "c8e89fbd-f72f-46bb-82ba-b023858f52e4",
+              "name": "language",
+              "value": "Spanish",
+              "type": "string"
+            },
+            {
+              "id": "65a36adb-09fb-4f56-9f1d-32e1ca90cc01",
+              "name": "threads_id",
+              "value": "={{ $env.THREADS_USER_ID }}",
+              "type": "string"
+            },
+            {
+              "id": "281e6656-876e-4a1e-aee5-5b11b8bfe96d",
+              "name": "account_id",
+              "value": "={{ $env.SOCIAL_ACCOUNT_ID }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "HTTP Request1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -440,
+        660
+      ],
+      "parameters": {
+        "url": "=https://example.invalid/access_token?grant_type=th_exchange_token&client_secret= {{ $json.client_secret }}&access_token={{ $json.access_token }}",
+        "options": {}
+      }
+    },
+    {
+      "name": "Long Live Token",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        560,
+        -940
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "725147e1-ef6a-4576-a67a-9bb62051ec91",
+              "name": "token",
+              "value": "={{ $env.THREADS_ACCESS_TOKEN }}",
+              "type": "string"
+            },
+            {
+              "id": "0df04c60-fa7d-450d-88ef-37f5fd079c4a",
+              "name": "threads_id",
+              "value": "={{ $env.THREADS_USER_ID }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Create Threads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        740,
+        -940
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://example.invalid/v1.0/{{ $json.threads_id }}/threads",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "media_type",
+              "value": "VIDEO"
+            },
+            {
+              "name": "video_url",
+              "value": "={{ $('Tweet Request2').item.json.mediaDetails[0].video_info.variants[3].url }}"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $json.token }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ $('Edit Fields').item.json.message.split('\\n')[0] }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Post Threads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        -940
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://example.invalid/v1.0/{{ $('Long Live Token').item.json.threads_id }}/threads_publish",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "creation_id",
+              "value": "={{ $('Create Threads').item.json.id }}"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $('Long Live Token').item.json.token }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        920,
+        -1020
+      ],
+      "parameters": {
+        "amount": 15
+      }
+    },
+    {
+      "name": "Code",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        -120
+      ],
+      "parameters": {
+        "jsCode": "// Obtener los datos del tweet (link y tweet AI) de la entrada anterior.\n// Asumimos que los datos del tweet llegan como el primer ítem de $input.\nconst inputData = $input.first().json;\nconst newTweetLink = inputData.link;\nconst newTweetText = inputData.tweet;\n\n// --- EXTRACCIÓN DE DATOS DE GOOGLE SHEETS ---\n// Obtenemos todos los ítems del nodo 'Get Data'. Cada ítem contiene la propiedad 'json' con los datos de la fila.\nconst sheetItems = $('Get Data').all();\n// Nos aseguramos de que sheetData sea siempre un array para evitar errores con .some()\nconst sheetData = Array.isArray(sheetItems) ? sheetItems : [];\n// --- FIN EXTRACCIÓN DE DATOS DE GOOGLE SHEETS ---\n\n// Franjas horarias prioritarias (en formato HH:MM)\nconst timeSlots = ['07:59', '09:59', '12:59', '17:59', '20:59'];\n\n// Obtener la fecha y hora actual en la zona horaria de Madrid.\n// Hoy es 15 de julio de 2025.\nconst now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Madrid' }));\nnow.setSeconds(0);\nnow.setMilliseconds(0);\n\nlet scheduledTime = null;\nconst MAX_DAYS_TO_SEARCH = 7; // Limitar la búsqueda a los próximos 7 días.\n\nfor (let i = 0; i < MAX_DAYS_TO_SEARCH; i++) {\n    const currentDate = new Date(now);\n    currentDate.setDate(now.getDate() + i);\n    currentDate.setHours(0, 0, 0, 0); // Resetear la hora a medianoche para solo comparar el día.\n\n    for (const slot of timeSlots) {\n        const [hour, minute] = slot.split(':').map(Number);\n        const candidateDateTime = new Date(currentDate);\n        candidateDateTime.setHours(hour, minute, 0, 0); // Establecer la hora para la franja candidata.\n\n        // Si la franja horaria candidata ya pasó HOY, la saltamos y seguimos.\n        if (candidateDateTime <= now) {\n            continue;\n        }\n\n        // --- LÓGICA PARA VERIFICAR SI LA FRANJA ESTÁ OCUPADA ---\n        const isOccupied = sheetData.some(item => {\n            // Acceder al objeto 'json' dentro de cada 'item' devuelto por .all().\n            const rowData = item.json;\n\n            // Verificar que 'rowData' y 'rowData.Fecha' existan.\n            if (!rowData || !rowData.Fecha) {\n                return false;\n            }\n            // Parsear la fecha de la hoja.\n            const sheetDateTime = new Date(rowData.Fecha);\n\n            // NORMALIZAR AMBAS FECHAS A UN FORMATO COMPARABLE (Año, Mes, Día, Hora, Minuto).\n            // Esto elimina la variabilidad de segundos y milisegundos que puede causar errores.\n            const normalizedSheetDate = new Date(\n                sheetDateTime.getFullYear(),\n                sheetDateTime.getMonth(),\n                sheetDateTime.getDate(),\n                sheetDateTime.getHours(),\n                sheetDateTime.getMinutes()\n            );\n\n            const normalizedCandidateDate = new Date(\n                candidateDateTime.getFullYear(),\n                candidateDateTime.getMonth(),\n                candidateDateTime.getDate(),\n                candidateDateTime.getHours(),\n                candidateDateTime.getMinutes()\n            );\n\n            // Comparar las fechas normalizadas y el estado.\n            // Solo se considera \"ocupado\" si el estado es 'PROGRAMADO'.\n            return normalizedSheetDate.getTime() === normalizedCandidateDate.getTime() && rowData.Estado === 'PROGRAMADO';\n        });\n        // --- FIN LÓGICA PARA VERIFICAR SI LA FRANJA ESTÁ OCUPADA ---\n\n        // Si la franja no está ocupada, la hemos encontrado.\n        if (!isOccupied) {\n            scheduledTime = candidateDateTime;\n            break; // Salir del bucle de franjas horarias.\n        }\n    }\n\n    if (scheduledTime) {\n        break; // Salir del bucle de días si ya encontramos una franja.\n    }\n}\n\n// --- DEVOLUCIÓN DEL RESULTADO ---\nif (scheduledTime) {\n    return [{\n        json: {\n            link: newTweetLink,\n            tweet: newTweetText,\n            // Formato 'AAAA-MM-DD HH:MM:SS' para Google Sheets.\n            fechaProgramada: scheduledTime.toISOString().replace('T', ' ').substring(0, 19),\n            status: 'success',\n            message: `Mensaje programado para ${scheduledTime.toISOString().replace('T',' ').substring(0,19) }`\n        }\n    }];\n} else {\n    // Si no se encontró espacio.\n    return [{\n        json: {\n            link: newTweetLink,\n            tweet: newTweetText,\n            status: 'error',\n            message: 'No se encontraron franjas horarias disponibles en los próximos días.'\n        }\n    }];\n}"
+      }
+    },
+    {
+      "name": "DPS",
+      "type": "@n8n/n8n-nodes-langchain.lmChatDeepSeek",
+      "typeVersion": 1,
+      "position": [
+        680,
+        -360
+      ],
+      "parameters": {
+        "options": {}
+      }
+    },
+    {
+      "name": "Telegram1",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1320,
+        -120
+      ],
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.callback_query.from.id }}",
+        "text": "=🗓️ {{ $('Code').first().json.message }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "reply_to_message_id": "={{ $('Telegram Trigger').first().json.callback_query.message.message_id }}"
+        }
+      }
+    },
+    {
+      "name": "Get Data",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        780,
+        -120
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.QUEUE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Push Data",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1140,
+        -120
+      ],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.QUEUE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Tweet": "={{ $('Edit Fields').first().json.message }}",
+            "Link": "={{ $('Edit Fields').first().json.id }}",
+            "Fecha": "={{ $json.fechaProgramada }}",
+            "Estado": "PROGRAMADO"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Link",
+              "displayName": "Link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Tweet",
+              "displayName": "Tweet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Fecha",
+              "displayName": "Fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Estado",
+              "displayName": "Estado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Get Data Delete",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        560,
+        -720
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.QUEUE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Link",
+              "lookupValue": "={{ $('Edit Fields').item.json.id }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Delete Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        820,
+        -720
+      ],
+      "parameters": {
+        "operation": "delete",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.QUEUE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list"
+        },
+        "startIndex": "={{ $json.row_number}}"
+      }
+    },
+    {
+      "name": "If",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        560,
+        -240
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "de0d967a-3fc3-4df1-b67c-65ed743cfdda",
+              "leftValue": "={{ $json }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Search Equals",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        360,
+        -240
+      ],
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.QUEUE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Link",
+              "lookupValue": "={{ $json.id_str }}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "name": "Waring Schedule",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        780,
+        -260
+      ],
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.callback_query.from.id }}",
+        "text": "=‼️🗓️ Ya esta programado para el **{{ $('Search Equals').item.json.Fecha }}**",
+        "additionalFields": {
+          "appendAttribution": false,
+          "reply_to_message_id": "={{ $('Telegram Trigger').item.json.callback_query.message.message_id }}"
+        }
+      }
+    },
+    {
+      "name": "Telegram4",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1100,
+        -720
+      ],
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.callback_query.from.id }}",
+        "text": "=❌ {{ $('Code').first().json.message }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "reply_to_message_id": "={{ $('Telegram Trigger').first().json.callback_query.message.message_id }}"
+        }
+      }
+    },
+    {
+      "name": "Telegram5",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1280,
+        -940
+      ],
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').first().json.callback_query.from.id }}",
+        "text": "=🎌",
+        "additionalFields": {
+          "appendAttribution": false,
+          "reply_to_message_id": "={{ $('Telegram Trigger').first().json.callback_query.message.message_id }}"
+        }
+      }
+    },
+    {
+      "name": "Execute Command1",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1460,
+        -340
+      ],
+      "parameters": {
+        "command": "=python3 {{ $env.SCRIPTS_DIR }}/download_tweet.py  {{ $('Get ID & Tweet').item.json.tweetUrl }}"
+      }
+    },
+    {
+      "name": "Read/Write Files from Disk3",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1620,
+        -340
+      ],
+      "parameters": {
+        "fileSelector": "={{ $env.WORK_DIR }}/{{ $('Get ID & Tweet').item.json.tweetId }}.mp4",
+        "options": {}
+      }
+    },
+    {
+      "name": "Get Video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        760,
+        100
+      ],
+      "parameters": {
+        "url": "={{ $json.mediaDetails[0].video_info.variants[3].url }}",
+        "options": {}
+      }
+    },
+    {
+      "name": "Telegram7",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -600,
+        -180
+      ],
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $json.callback_query.id }}",
+        "additionalFields": {
+          "text": "💭 Procesando"
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Telegram7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get ID & Tweet": {
+      "main": [
+        [
+          {
+            "node": "Tweet Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tweet Request": {
+      "main": [
+        [
+          {
+            "node": "Get Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Telegram2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DeepSeek Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get ID & Tweet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message Text": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message Video": {
+      "main": [
+        [
+          {
+            "node": "Message Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch1": {
+      "main": [
+        [
+          {
+            "node": "X",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Long Live Token",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Data Delete",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Search Equals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram2": {
+      "main": [
+        []
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Tweet Request2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Threads Variable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tweet Request2": {
+      "main": [
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram": {
+      "main": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "Telegram3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk1": {
+      "main": [
+        [
+          {
+            "node": "Upload Twitter Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Twitter Video": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read/Write Files from Disk2": {
+      "main": [
+        [
+          {
+            "node": "Upload Twitter Video APPEND",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Twitter Video APPEND": {
+      "main": [
+        [
+          {
+            "node": "Upload Twitter Video FINALIZE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Twitter Video FINALIZE": {
+      "main": [
+        []
+      ]
+    },
+    "When clicking ‘Test workflow’": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        []
+      ]
+    },
+    "Long Live Token": {
+      "main": [
+        [
+          {
+            "node": "Create Threads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Threads": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Post Threads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Push Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DPS": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Data": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Push Data": {
+      "main": [
+        [
+          {
+            "node": "Telegram1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Data Delete": {
+      "main": [
+        [
+          {
+            "node": "Delete Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Waring Schedule",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Equals": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete Sheet": {
+      "main": [
+        [
+          {
+            "node": "Telegram4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Threads": {
+      "main": [
+        [
+          {
+            "node": "Telegram5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Command1": {
+      "main": [
+        [
+          {
+            "node": "Read/Write Files from Disk3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Video": {
+      "main": [
+        [
+          {
+            "node": "Message Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram7": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "demo8a26035a"
+}
